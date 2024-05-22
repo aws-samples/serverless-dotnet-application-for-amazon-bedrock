@@ -1,0 +1,49 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"]</title>
+    <link rel="stylesheet" href="https://ajax.aspnetcdn.com/ajax/bootstrap/5.2.3/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/bedrock-main.css" asp-append-version="true" />
+    @await RenderSectionAsync("Styles", required: false)
+</head>
+<body>
+    <header class="bedrock-header">
+        <div class="bedrock-infobar">
+            <a class="fs-5 text-decoration-none link-light" asp-page="/Index">Amazon Bedrock DotNet Demo</a>
+            <div class="bedrock-user-info">
+                @if (User.Identity is not null && User.Identity.IsAuthenticated)
+                {
+                    @:Welcome <span class="fw-bold">@User.Identity.Name</span> |
+                    <a class="link-light link-offset-2 link-underline-opacity-0 link-underline-opacity-25-hover" asp-page="/Account/Logout" onclick="return confirm('Do you want to logout?')">Logout</a>
+                }
+                else
+                {
+                    <a class="link-light link-offset-2 link-underline-opacity-0 link-underline-opacity-25-hover" asp-page="/Account/Login">Login</a>
+                }
+            </div>
+        </div>
+        <div class="bedrock-navbar">
+            <div><a asp-page="/Index">HOME</a></div>
+            <div><a asp-page="/Text">Text Chat</a></div>
+            <div><a asp-page="/RAG">RAG Chat</a></div>
+            <div><a asp-page="/Image">Image Generation</a></div>
+        </div>
+    </header>
+
+    <main role="main" class="bedrock-content pb-3">
+        @RenderBody()
+    </main>
+
+    <footer class="bedrock-footer">
+        <div class="bedrock-copyright">(c) 2023 Amazon Web Services</div>
+    </footer>
+
+    <script src="https://ajax.aspnetcdn.com/ajax/jQuery/jquery-3.7.1.min.js"></script>
+    <script src="https://ajax.aspnetcdn.com/ajax/bootstrap/5.2.3/bootstrap.bundle.js"></script>
+
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
+

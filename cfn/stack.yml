@@ -1,0 +1,990 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS Serverless Bedrock-DotNet Demo
+
+Parameters:
+  CognitoDomainPrefix:
+    Type: String
+    Description: This field denotes the part of the domain before .auth.[region].amazoncognito.com This must be unique within the AWS region.
+    AllowedPattern: ^[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?$
+    MinLength: 1
+
+  LogRetentionDays:
+    Type: Number
+    Description: Number of days to retain Cloudwatch Logs for each Lambda function
+    Default: 1
+    MinValue: 1
+
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks:
+        - W3002
+  AWS::CloudFormation::Interface:
+    ParameterLabels:
+      CognitoDomainPrefix:
+        default: What would be the prefix for your Cognito UserPool domain?
+      LogRetentionDays:
+        default: How long would you like to retain logs for the backend Lambda functions in Cloudwatch Logs?
+
+Resources:
+  # ======================================
+  # ====== Authentication Resources ======
+  # ======================================
+
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      AliasAttributes:
+        - preferred_username
+        - email
+      AutoVerifiedAttributes: 
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 6
+          RequireLowercase: False
+          RequireNumbers: True
+          RequireSymbols: False
+          RequireUppercase: False
+          TemporaryPasswordValidityDays: 30
+      Schema:
+        - Name: sub
+          AttributeDataType: String
+          DeveloperOnlyAttribute: False
+          Mutable: False
+          Required: True
+          StringAttributeConstraints:
+            MinLength: 1
+            MaxLength: 2048
+        - Name: name
+          AttributeDataType: String
+          DeveloperOnlyAttribute: False
+          Mutable: True
+          Required: True
+          StringAttributeConstraints:
+            MinLength: 1
+            MaxLength: 2048
+        - Name: email
+          AttributeDataType: String
+          DeveloperOnlyAttribute: False
+          Mutable: True
+          Required: False
+          StringAttributeConstraints:
+            MinLength: 0
+            MaxLength: 2048
+        - Name: email_verified
+          AttributeDataType: Boolean
+          DeveloperOnlyAttribute: False
+          Mutable: True
+          Required: False
+      UsernameConfiguration: 
+        CaseSensitive: False
+  
+  CognitoDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref CognitoDomainPrefix
+      UserPoolId: !Ref CognitoUserPool
+  
+  CognitoAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties: 
+      UserPoolId: !Ref CognitoUserPool
+      ClientName: app-client
+      ReadAttributes: 
+        - name
+        - email
+        - email_verified
+      WriteAttributes: 
+        - name
+        - email
+      ExplicitAuthFlows: 
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      SupportedIdentityProviders: 
+        - COGNITO
+      CallbackURLs:
+        - !Sub "${FrontendAPI.ApiEndpoint}/signin-oidc"
+      LogoutURLs: 
+        - !GetAtt FrontendAPI.ApiEndpoint
+      AllowedOAuthFlows: 
+        - code
+        - implicit
+      AllowedOAuthScopes: 
+        - openid
+        - profile
+        - email
+      AllowedOAuthFlowsUserPoolClient: True
+      GenerateSecret: False
+
+  CognitoTestUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserAttributes: 
+        - Name: name
+          Value: John Smith
+      Username: user1
+      UserPoolId: !Ref CognitoUserPool
+
+  # ======================================
+  # ========= Frontend Resources =========
+  # ======================================
+  
+  FrontendLambdaRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Lambda execution role for FrontendLambda function
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  FrontendLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: Hosts and serves Bedrock-DotNet demo frontend web contents
+      Code: ../outputs/bedrock_frontend/
+      Environment: 
+        Variables: 
+          AWS_LAMBDA_HANDLER_LOG_LEVEL: Info
+          BACKEND_ENDPOINT: !GetAtt BackendAPI.ApiEndpoint
+          BACKEND_STAGE: !Ref BackendApiStage
+          COGNITO_BASE_URL: !GetAtt FrontendAPI.ApiEndpoint
+          COGNITO_CLIENT_ID: !Ref CognitoAppClient
+          COGNITO_LOGOUT_URL: !Sub "https://${CognitoDomain}.auth.${AWS::Region}.amazoncognito.com/logout"
+          COGNITO_METADATA_ADDRESS: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}/.well-known/openid-configuration"
+      Handler: bedrock_frontend::bedrock_frontend.LambdaEntryPoint::FunctionHandlerAsync
+      MemorySize: 256
+      Role: !GetAtt FrontendLambdaRole.Arn
+      Runtime: dotnet8
+      Timeout: 60
+
+  FrontendLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt FrontendLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${FrontendAPI}/*"
+
+  FrontendLambdaLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${FrontendLambda}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  FrontendAPI:
+    Type: AWS::ApiGatewayV2::Api
+    Properties: 
+      Name: Bedrock-DotNet-Frontend
+      Description: This API endpoint serves the Bedrock-DotNet demo frontend pages
+      ProtocolType: HTTP
+
+  FrontendApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref FrontendAPI
+      Description: Lambda Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FrontendLambda.Arn}/invocations"
+      IntegrationMethod: POST
+      PayloadFormatVersion: '1.0'
+
+  FrontendApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref FrontendAPI
+      RouteKey: $default
+      Target: !Sub "integrations/${FrontendApiIntegration}"
+
+  FrontendApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties: 
+      ApiId: !Ref FrontendAPI
+      AutoDeploy: True
+      StageName: $default
+
+  # ======================================
+  # ========= Backend Resources ==========
+  # ======================================
+
+  # ---- Bedrock-Text Function ---- 
+  BedrockTextLambdaRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Lambda execution role for BedrockTextLambda function
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ExecuteApiPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BackendAPI}/${BackendApiStage}/POST/@connections/*" 
+        - PolicyName: DdbPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: 
+                - dynamodb:Query
+                - dynamodb:PutItem
+              Resource: !GetAtt BedrockTextDDB.Arn
+        - PolicyName: BedrockPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: 
+                - bedrock:InvokeModel
+              Resource: "*"
+        - PolicyName: SqsPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+                - sqs:GetQueueAttributes
+                - sqs:DeleteMessage
+                - sqs:ReceiveMessage
+              Resource: !GetAtt BedrockTextSqsQueue.Arn
+              
+  BedrockTextLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: Bedrock-DotNet demo backend function to handle text based chat
+      Code: ../outputs/bedrock_text/
+      Environment: 
+        Variables: 
+          AWS_LAMBDA_HANDLER_LOG_LEVEL: Information
+          DDB_TABLE_NAME: !Ref BedrockTextDDB
+      Handler: bedrock_text::bedrock_text.Function::FunctionHandler
+      MemorySize: 256
+      Role: !GetAtt BedrockTextLambdaRole.Arn
+      Runtime: dotnet8
+      Timeout: 300
+
+  BedrockTextLambdaLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${BedrockTextLambda}"
+      RetentionInDays: !Ref LogRetentionDays
+  
+  BedrockTextLambdaSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt BedrockTextSqsQueue.Arn
+      FunctionName: !GetAtt BedrockTextLambda.Arn
+      
+  BedrockTextSqsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: Bedrock-DotNet-Text.fifo
+      FifoQueue: True
+      MessageRetentionPeriod: 3600
+      VisibilityTimeout: 300
+  
+  BedrockTextDDB:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "SessionId"
+          AttributeType: "N"
+        - AttributeName: "TTL"
+          AttributeType: "N"
+      KeySchema:
+        - AttributeName: "SessionId"
+          KeyType: "HASH"
+        - AttributeName: "TTL"
+          KeyType: "RANGE"
+      BillingMode: PAY_PER_REQUEST
+      TableClass: STANDARD_INFREQUENT_ACCESS
+      TimeToLiveSpecification:
+        AttributeName: "TTL"
+        Enabled: True
+  
+  # ---- Bedrock-RAG KnowledgeBase ---- 
+  AossCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn: AossEncryptionPolicy
+    Properties:
+      Description: Default collection created for Amazon Bedrock Knowledge base.
+      Name: aoss-collection-for-bedrock-kb
+      Type: VECTORSEARCH
+
+  AossEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Description: Custom encryption policy created for Amazon Bedrock Knowledge Base service to allow a created IAM role to have permissions on Amazon Open Search collections and indexes.
+      Name: enc-policy-for-bedrock-kb
+      Policy: "{\"AWSOwnedKey\":true,\"Rules\":[{\"ResourceType\":\"collection\",\"Resource\":[\"collection/aoss-collection-for-bedrock-kb\"]}]}"
+      Type: encryption
+  
+  AossNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Description: Custom network policy created for Amazon Bedrock Knowledge Base service to allow a created IAM role to have permissions on Amazon Open Search collections and indexes.
+      Name: net-policy-for-bedrock-kb
+      Policy: "[{\"AllowFromPublic\":true,\"Rules\":[{\"ResourceType\":\"dashboard\",\"Resource\":[\"collection/aoss-collection-for-bedrock-kb\"]},{\"ResourceType\":\"collection\",\"Resource\":[\"collection/aoss-collection-for-bedrock-kb\"]}]}]"
+      Type: network
+
+  AossDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Description: Custom data access policy created for Amazon Bedrock Knowledge Base service to allow a created IAM role to have permissions on Amazon Open Search collections and indexes.
+      Name: data-policy-for-bedrock-kb
+      Policy: !Sub "[{\"Rules\":[{\"Resource\":[\"collection/aoss-collection-for-bedrock-kb\"],\"Permission\":[\"aoss:DescribeCollectionItems\",\"aoss:CreateCollectionItems\",\"aoss:UpdateCollectionItems\"],\"ResourceType\":\"collection\"},{\"Resource\":[\"index/aoss-collection-for-bedrock-kb/*\"],\"Permission\":[\"aoss:UpdateIndex\",\"aoss:DescribeIndex\",\"aoss:ReadDocument\",\"aoss:WriteDocument\",\"aoss:CreateIndex\"],\"ResourceType\":\"index\"}],\"Principal\":[\"${BedrockExecutionRoleForKnowledgeBase.Arn}\", \"${CustomResourceAossIndexLambdaRole.Arn}\"],\"Description\":\"\"}]"
+      Type: data
+  
+  CustomResourceAossIndexLambdaRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Lambda execution role for CustomResourceAossIndexLambda function
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AossApiPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+                - aoss:APIAccessAll
+              Resource: !GetAtt AossCollection.Arn
+              
+  CustomResourceAossIndexLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: Function for the Cloudformation custome resource to create Bedrock KnowledgeBase
+      Code: ../outputs/cfn_custom_resource_aoss_index/
+      Environment: 
+        Variables: 
+          AWS_LAMBDA_HANDLER_LOG_LEVEL: Debug
+          AOSS_COLLECTION_ENDPOINT: !GetAtt AossCollection.CollectionEndpoint
+      Handler: CustomResourceAossIndex::CustomResourceAossIndex.Function::FunctionHandler
+      MemorySize: 256
+      Role: !GetAtt CustomResourceAossIndexLambdaRole.Arn
+      Runtime: dotnet8
+      Timeout: 300
+  
+  CustomResourceAossIndexLambdaLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${CustomResourceAossIndexLambda}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  AossDefaultIndex:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - AossDataAccessPolicy
+      - CustomResourceAossIndexLambdaLogs
+    Properties:
+      ServiceToken: !GetAtt CustomResourceAossIndexLambda.Arn
+  
+  BedrockRagDataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  
+  BedrockExecutionRoleForKnowledgeBase:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: AmazonBedrockKnowledgeBaseTrustPolicy
+          Effect: Allow
+          Principal:
+            Service: bedrock.amazonaws.com
+          Action: sts:AssumeRole
+      Description: Bedrock Knowledge Base access
+      Policies:
+        - PolicyName: FoundationModelPolicyForKnowledgeBase
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - bedrock:InvokeModel
+              Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v1
+        - PolicyName: AossPolicyForKnowledgeBase
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - aoss:APIAccessAll
+              Resource: !GetAtt AossCollection.Arn
+        - PolicyName: S3PolicyForKnowledgeBase
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - s3:ListBucket
+              - s3:GetObject
+              Resource: 
+              - !GetAtt BedrockRagDataBucket.Arn
+              - !Sub ${BedrockRagDataBucket.Arn}/*
+      Path: /service-role/
+
+  BedrockKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    DependsOn: AossDefaultIndex
+    Properties:
+      Name: bedrock-dotnet-demo-kb
+      KnowledgeBaseConfiguration: 
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v1"
+      RoleArn: !GetAtt BedrockExecutionRoleForKnowledgeBase.Arn
+      StorageConfiguration: 
+        Type: OPENSEARCH_SERVERLESS
+        OpensearchServerlessConfiguration:
+          CollectionArn: !GetAtt AossCollection.Arn
+          VectorIndexName: bedrock-dotnet-demo-kb-default-index
+          FieldMapping: 
+            MetadataField: AMAZON_BEDROCK_METADATA
+            TextField: AMAZON_BEDROCK_TEXT_CHUNK
+            VectorField: bedrock-dotnet-demo-kb-default-vector
+
+  BedrockKnowledgeBaseDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      Name: bedrock-dotnet-demo-kb-data-source
+      KnowledgeBaseId: !Ref BedrockKnowledgeBase
+      DataSourceConfiguration: 
+        Type: S3
+        S3Configuration: 
+          BucketArn: !GetAtt BedrockRagDataBucket.Arn
+
+  CustomResourceExampleDataLambdaRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Lambda execution role for CustomResourceExampleDataLambda function
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockApiPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:StartIngestionJob
+                - bedrock:GetIngestionJob
+              Resource: !GetAtt BedrockKnowledgeBase.KnowledgeBaseArn
+        - PolicyName: S3Permission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: 
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - !Sub ${BedrockRagDataBucket.Arn}/*
+                - !GetAtt BedrockRagDataBucket.Arn
+              
+  CustomResourceExampleDataLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: Function for the Cloudformation custome resource to create Bedrock KnowledgeBase
+      Code: ../outputs/cfn_custom_resource_example_data/
+      Environment: 
+        Variables: 
+          AWS_LAMBDA_HANDLER_LOG_LEVEL: Debug
+          DATA_BUCKET: !Ref BedrockRagDataBucket
+          KNOWLEDGEBASE_ID: !Ref BedrockKnowledgeBase
+          DATASOURCE_ID: !GetAtt BedrockKnowledgeBaseDataSource.DataSourceId
+      Handler: CustomResourceExampleData::CustomResourceExampleData.Function::FunctionHandler
+      MemorySize: 256
+      Role: !GetAtt CustomResourceExampleDataLambdaRole.Arn
+      Runtime: dotnet8
+      Timeout: 300
+  
+  CustomResourceExampleDataLambdaLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${CustomResourceExampleDataLambda}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  RagExampleData:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: CustomResourceExampleDataLambdaLogs
+    Properties:
+      ServiceToken: !GetAtt CustomResourceExampleDataLambda.Arn
+
+  # ---- Bedrock-RAG Function ---- 
+  BedrockRagLambdaRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Lambda execution role for BedrockRagLambda function
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ExecuteApiPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BackendAPI}/${BackendApiStage}/POST/@connections/*" 
+        - PolicyName: BedrockPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: 
+                - bedrock:InvokeModel
+                - bedrock:RetrieveAndGenerate
+                - bedrock:Retrieve
+              Resource: "*"
+        - PolicyName: SqsPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+                - sqs:GetQueueAttributes
+                - sqs:DeleteMessage
+                - sqs:ReceiveMessage
+              Resource: !GetAtt BedrockRagSqsQueue.Arn
+              
+  BedrockRagLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: Bedrock-DotNet demo backend function to handle RAG based chat/Q&A
+      Code: ../outputs/bedrock_rag/
+      Environment: 
+        Variables: 
+          AWS_LAMBDA_HANDLER_LOG_LEVEL: Information
+          KNOWLEDGE_BASE_ID: !Ref BedrockKnowledgeBase
+      Handler: bedrock_rag::bedrock_rag.Function::FunctionHandler
+      MemorySize: 256
+      Role: !GetAtt BedrockRagLambdaRole.Arn
+      Runtime: dotnet8
+      Timeout: 300
+
+  BedrockRagLambdaLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${BedrockRagLambda}"
+      RetentionInDays: !Ref LogRetentionDays
+  
+  BedrockRagLambdaSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt BedrockRagSqsQueue.Arn
+      FunctionName: !GetAtt BedrockRagLambda.Arn
+      
+  BedrockRagSqsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: Bedrock-DotNet-RAG.fifo
+      FifoQueue: True
+      MessageRetentionPeriod: 3600
+      VisibilityTimeout: 300
+      
+  # ---- Bedrock-Image Function ---- 
+  BedrockImageLambdaRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Lambda execution role for BedrockImageLambda function
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ExecuteApiPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BackendAPI}/${BackendApiStage}/POST/@connections/*" 
+        - PolicyName: S3Permission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: 
+                - s3:PutObject
+                - s3:ListBucket
+              Resource:
+                - !Sub ${BedrockImageS3Bucket.Arn}/*
+                - !GetAtt BedrockImageS3Bucket.Arn
+        - PolicyName: BedrockPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: 
+                - bedrock:InvokeModel
+              Resource: "*"
+        - PolicyName: SqsPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+                - sqs:GetQueueAttributes
+                - sqs:DeleteMessage
+                - sqs:ReceiveMessage
+              Resource: !GetAtt BedrockImageSqsQueue.Arn
+              
+  BedrockImageLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: Bedrock-DotNet demo backend function to handle image generation
+      Code: ../outputs/bedrock_image/
+      Environment: 
+        Variables: 
+          AWS_LAMBDA_HANDLER_LOG_LEVEL: Information
+          S3_BUCKET_NAME: !Ref BedrockImageS3Bucket
+          CF_DISTRIBUTION_DOMAIN: !GetAtt BedrockImageCfDistribution.DomainName
+      Handler: bedrock_image::bedrock_image.Function::FunctionHandler
+      MemorySize: 256
+      Role: !GetAtt BedrockImageLambdaRole.Arn
+      Runtime: dotnet8
+      Timeout: 300
+
+  BedrockImageLambdaLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${BedrockImageLambda}"
+      RetentionInDays: !Ref LogRetentionDays
+  
+  BedrockImageLambdaSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt BedrockImageSqsQueue.Arn
+      FunctionName: !GetAtt BedrockImageLambda.Arn
+      
+  BedrockImageSqsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: Bedrock-DotNet-Image.fifo
+      FifoQueue: True
+      MessageRetentionPeriod: 3600
+      VisibilityTimeout: 300
+  
+  BedrockImageS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ClearOldImages
+            ExpirationInDays: 1
+            Prefix: "images/"
+            Status: Enabled
+  
+  BedrockImageS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BedrockImageS3Bucket
+      PolicyDocument:
+        Statement:
+        - Action: s3:GetObject
+          Effect: Allow
+          Resource: !Sub ${BedrockImageS3Bucket.Arn}/*
+          Principal:
+            Service: cloudfront.amazonaws.com
+          Condition:
+            StringEquals:
+              AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${BedrockImageCfDistribution}
+        - Effect: Deny
+          Principal: '*'
+          Action: 's3:*'
+          Resource: 
+            - !Sub ${BedrockImageS3Bucket.Arn}/*
+            - !GetAtt BedrockImageS3Bucket.Arn
+          Condition:
+            Bool: 
+              aws:SecureTransport: false
+
+  BedrockImageCfDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+        - Id: S3Origin
+          DomainName: !GetAtt BedrockImageS3Bucket.RegionalDomainName
+          S3OriginConfig:
+            OriginAccessIdentity: ''
+          OriginAccessControlId: !GetAtt BedrockImageCfDistributionOAC.Id
+        Enabled: true
+        DefaultCacheBehavior:
+          CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
+          Compress: True
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+
+  BedrockImageCfDistributionOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties: 
+      OriginAccessControlConfig:
+        Name: !Ref BedrockImageS3Bucket
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # ---- Backend APIGW Authorizer Function ---- 
+  BackendLambdaAuthorizerRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: Lambda execution role for BackendLambdaAuthorizer functions
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+  
+  BackendLambdaAuthorizer:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: Lambda Authorizer for Bedrock-DotNet demo backend API Gateway
+      Code: ../outputs/bedrock_authorizer/
+      Environment: 
+        Variables: 
+          AWS_LAMBDA_HANDLER_LOG_LEVEL: Info
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPool
+          COGNITO_APP_CLIENT_ID: !Ref CognitoAppClient
+      Handler: bedrock_authorizer::bedrock_authorizer.Function::FunctionHandler
+      MemorySize: 128
+      Role: !GetAtt BackendLambdaAuthorizerRole.Arn
+      Runtime: dotnet8
+      Timeout: 60
+  
+  BackendLambdaAuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt BackendLambdaAuthorizer.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${BackendAPI}/authorizers/${BackendApiAuthorizer}"
+
+  BackendLambdaAuthorizerLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${BackendLambdaAuthorizer}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  # ---- Backend websocket API GW  ---- 
+  BackendAPI:
+    Type: AWS::ApiGatewayV2::Api
+    Properties: 
+      Name: Bedrock-DotNet-Demo-Backend
+      Description: This API endpoint serves the backend
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: $request.body.action
+  
+  BackendApiAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties: 
+      Name: Bedrock-DotNet-Demo-Backend-Authorizer
+      ApiId: !Ref BackendAPI
+      AuthorizerType: REQUEST
+      AuthorizerUri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BackendLambdaAuthorizer.Arn}/invocations"
+      IdentitySource:
+        - route.request.querystring.token
+
+  BackendApiConnect:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BackendAPI
+      RouteKey: $connect
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref BackendApiAuthorizer
+
+  BackendApiIntegrationRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Description: API GW role to trigger SQS
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+      Policies:
+        - PolicyName: TriggerSqsPermission
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: sqs:SendMessage
+              Resource:
+                - !GetAtt BedrockTextSqsQueue.Arn
+                - !GetAtt BedrockRagSqsQueue.Arn
+                - !GetAtt BedrockImageSqsQueue.Arn
+  
+  BackendApiIntegrationText:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BackendAPI
+      ConnectionType: INTERNET
+      CredentialsArn: !GetAtt BackendApiIntegrationRole.Arn
+      IntegrationMethod: POST
+      IntegrationType: AWS
+      IntegrationUri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:sqs:path/${AWS::AccountId}/${BedrockTextSqsQueue.QueueName}"
+      PassthroughBehavior: NEVER
+      RequestParameters:
+        integration.request.header.Content-Type: "'application/x-www-form-urlencoded'"
+      RequestTemplates:
+        application/json: Action=SendMessage&MessageGroupId=$input.path('$.MessageGroupId')&MessageDeduplicationId=$context.requestId&MessageAttribute.1.Name=connectionId&MessageAttribute.1.Value.StringValue=$context.connectionId&MessageAttribute.1.Value.DataType=String&MessageAttribute.2.Name=requestId&MessageAttribute.2.Value.StringValue=$context.requestId&MessageAttribute.2.Value.DataType=String&MessageAttribute.3.Name=domainName&MessageAttribute.3.Value.StringValue=$context.domainName&MessageAttribute.3.Value.DataType=String&MessageAttribute.4.Name=stage&MessageAttribute.4.Value.StringValue=$context.stage&MessageAttribute.4.Value.DataType=String&MessageBody=$input.json('$')
+
+  BackendApiRouteText:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BackendAPI
+      RouteKey: sendprompt_text
+      Target: !Sub "integrations/${BackendApiIntegrationText}"
+
+  BackendApiIntegrationRag:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BackendAPI
+      ConnectionType: INTERNET
+      CredentialsArn: !GetAtt BackendApiIntegrationRole.Arn
+      IntegrationMethod: POST
+      IntegrationType: AWS
+      IntegrationUri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:sqs:path/${AWS::AccountId}/${BedrockRagSqsQueue.QueueName}"
+      PassthroughBehavior: NEVER
+      RequestParameters:
+        integration.request.header.Content-Type: "'application/x-www-form-urlencoded'"
+      RequestTemplates:
+        application/json: Action=SendMessage&MessageGroupId=$input.path('$.MessageGroupId')&MessageDeduplicationId=$context.requestId&MessageAttribute.1.Name=connectionId&MessageAttribute.1.Value.StringValue=$context.connectionId&MessageAttribute.1.Value.DataType=String&MessageAttribute.2.Name=requestId&MessageAttribute.2.Value.StringValue=$context.requestId&MessageAttribute.2.Value.DataType=String&MessageAttribute.3.Name=domainName&MessageAttribute.3.Value.StringValue=$context.domainName&MessageAttribute.3.Value.DataType=String&MessageAttribute.4.Name=stage&MessageAttribute.4.Value.StringValue=$context.stage&MessageAttribute.4.Value.DataType=String&MessageBody=$input.json('$')
+
+  BackendApiRouteRag:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BackendAPI
+      RouteKey: sendprompt_rag
+      Target: !Sub "integrations/${BackendApiIntegrationRag}"
+
+  BackendApiIntegrationImage:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref BackendAPI
+      ConnectionType: INTERNET
+      CredentialsArn: !GetAtt BackendApiIntegrationRole.Arn
+      IntegrationMethod: POST
+      IntegrationType: AWS
+      IntegrationUri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:sqs:path/${AWS::AccountId}/${BedrockImageSqsQueue.QueueName}"
+      PassthroughBehavior: NEVER
+      RequestParameters:
+        integration.request.header.Content-Type: "'application/x-www-form-urlencoded'"
+      RequestTemplates:
+        application/json: Action=SendMessage&MessageGroupId=$input.path('$.MessageGroupId')&MessageDeduplicationId=$context.requestId&MessageAttribute.1.Name=connectionId&MessageAttribute.1.Value.StringValue=$context.connectionId&MessageAttribute.1.Value.DataType=String&MessageAttribute.2.Name=requestId&MessageAttribute.2.Value.StringValue=$context.requestId&MessageAttribute.2.Value.DataType=String&MessageAttribute.3.Name=domainName&MessageAttribute.3.Value.StringValue=$context.domainName&MessageAttribute.3.Value.DataType=String&MessageAttribute.4.Name=stage&MessageAttribute.4.Value.StringValue=$context.stage&MessageAttribute.4.Value.DataType=String&MessageBody=$input.json('$')
+
+  BackendApiRouteImage:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref BackendAPI
+      RouteKey: sendprompt_image
+      Target: !Sub "integrations/${BackendApiIntegrationImage}"
+
+  BackendApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    DependsOn:
+      - BackendApiRouteText
+      - BackendApiRouteRag
+      - BackendApiRouteImage
+    Properties: 
+      ApiId: !Ref BackendAPI
+      AutoDeploy: True
+      StageName: demo
+
+Outputs:
+  WebURL:
+    Description: Web endpoint for the Bedrock-DotNet demo
+    Value: !GetAtt FrontendAPI.ApiEndpoint
+  
+  CognitoUserPool:
+    Description: Cognito User Pool ID
+    Value: !Ref CognitoUserPool

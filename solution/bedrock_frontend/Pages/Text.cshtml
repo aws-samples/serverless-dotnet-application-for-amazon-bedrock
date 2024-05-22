@@ -1,0 +1,75 @@
+﻿@page
+@model bedrock_frontend.Pages.TextModel
+@{
+    ViewData["Title"] = "Text based chat";
+}
+
+<div class="card m-auto chatbox-window">
+    <div class="card-header d-flex justify-content-between align-items-center p-3">
+        <h5 class="mb-0">Text Chat</h5>
+    </div>
+
+    <div id="chat-body" class="card-body" data-mdb-perfect-scrollbar="true">
+        <div id="chat-connection-status" class="divider d-flex align-items-center mb-4">
+            <p class="text-center mx-3 mb-0" style="color: #a2aab7">Connecting to backend endpoint. Please wait</p>
+        </div>
+    </div>
+
+    <div class="card-footer text-muted d-flex justify-content-start align-items-center p-3">
+        <img src="~/images/avatars/user.webp" class="pretty-avatar" />
+        <input id="chat-message" type="text" class="form-control form-control-lg" placeholder="Type message" disabled="disabled" />
+        <input id="chat-sendbutton" type="image" src="~/images/btn_send.webp" style="max-height: 30px; max-width: 30px" disabled="disabled" />
+    </div>
+</div>
+
+
+<div id="sidebar-open">OPTIONS</div>
+
+<div class="bedrock-option-overlay"></div>
+
+<div class="bedrock-option-sidebar">
+    <div id="sidebar-close"></div>
+
+    <label for="option_model" class="form-label">
+        Model
+        <div>ID of the model to use.</div>
+    </label>
+    <select id="option_model" class="form-select form-select-sm mb-3 bedrock-options" aria-label="Foundational Model" disabled>
+        <option value="amazon.titan-text-express-v1" selected>Amazon Titan Text Express v1</option>
+        <option value="anthropic.claude-v2:1">Anthropic Claude v2.1</option>
+        <option value="ai21.j2-mid-v1">AI21 Labs Jurassic-2 v1</option>
+        <option value="meta.llama2-13b-chat-v1">Meta Llama 2 v1</option>
+    </select>
+
+    <label for="option_temperature" class="form-label">
+        Temperature
+        <div>Tunes the degree of randomness in generation. Lower temperatures mean less random generations.</div>
+    </label>
+    <input id="option_temperature" type="range" class="form-range bedrock-options" min="0" max="2" step="0.1" value="1" disabled>
+    <p id="current_temperature">1</p>
+
+    <label for="option_top_p" class="form-label">
+        Top P
+        <div>f set to float less than 1, only the smallest set of most probable tokens with probabilities that add up to top_p or higher are kept for generation.</div>
+    </label>
+    <input id="option_top_p" type="range" class="form-range bedrock-options" min="0" max="1" step="0.1" value="1" disabled>
+    <p id="current_top_p">1</p>
+
+    <label for="option_max_token" class="form-label">
+        Max Response Length
+        <div>Configures the max number of tokens to use in the generated response.</div>
+    </label>
+    <input id="option_max_token" type="text" class="form-control bedrock-options" value="512" disabled>
+</div>
+
+@section Scripts {
+    <script>
+        var bedrock_backend_endpoint = "@ViewData["backend_endpoint"]";
+        var backend_stage = "@ViewData["backend_stage"]";
+        var cognito_id_token = "@ViewData["id_token"]";
+        var action_name = "@ViewData["ws_action"]";
+    </script>
+    <script src="~/js/jquery.simple.websocket.js" asp-append-version="true"></script>
+    <script src="~/js/bedrock-common.js" asp-append-version="true"></script>
+    <script src="~/js/bedrock-text.js" asp-append-version="true"></script>
+}
