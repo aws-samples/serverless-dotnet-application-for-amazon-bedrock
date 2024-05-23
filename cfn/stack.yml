@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: AWS Serverless Bedrock-DotNet Demo
+Description: Serverless DotNet Application for Amazon Bedrock
 
 Parameters:
   CognitoDomainPrefix:

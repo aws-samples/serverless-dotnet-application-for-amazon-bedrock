@@ -21,8 +21,8 @@ function clean_up {
 read -p "Which region would you like to deploy the demo to? [us-east-1]: " AWS_REGION
 AWS_REGION=${AWS_REGION:-us-east-1}
 read -p "Enter an existing S3 bucket name to store deployment package: " DEPLOYMENT_BUCKET
-read -p "Enter a name for the CloudFront Stack [bedrock-dotnet-demo]: " CFN_STACK_NAME
-CFN_STACK_NAME=${CFN_STACK_NAME:-bedrock-dotnet-demo}
+read -p "Enter a name for the CloudFront Stack [serverless-dotnet-app-for-bedrock]: " CFN_STACK_NAME
+CFN_STACK_NAME=${CFN_STACK_NAME:-serverless-dotnet-app-for-bedrock}
 read -p "Enter a prefix for the Cognito Domain name to be created: " COGNITO_DOMAIN_PREFIX
 read -p "How many days would you like Cloudwatch to retain Lambda logs [1]: " LOG_RETENTION_DAYS
 LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-1}
