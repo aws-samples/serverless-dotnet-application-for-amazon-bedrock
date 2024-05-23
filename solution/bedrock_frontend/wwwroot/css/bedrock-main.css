@@ -1,0 +1,329 @@
+﻿/*
+ Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ SPDX-License-Identifier: MIT-0
+*/
+
+html {
+    font-size: 16px;
+    position: relative;
+    min-height: 100%;
+}
+
+body {
+    background-color: #eee;
+    overflow: hidden;
+}
+
+.bedrock-header {
+    width: 100%;
+    height: 85px;
+    top: 0px;
+    left: 0px;
+    position: fixed;
+}
+
+.bedrock-infobar {
+    width: 100%;
+    height: 60px;
+    line-height: 60px;
+    padding-left: 25px;
+    padding-right: 25px;
+    color: #FFFFFF;
+    background: rgb(2,0,36);
+    background: -moz-linear-gradient(180deg, rgba(2,0,36,1) 0%, rgba(9,9,121,1) 35%, rgba(25,118,210,1) 100%);
+    background: -webkit-linear-gradient(180deg, rgba(2,0,36,1) 0%, rgba(9,9,121,1) 35%, rgba(25,118,210,1) 100%);
+    background: linear-gradient(180deg, rgba(2,0,36,1) 0%, rgba(9,9,121,1) 35%, rgba(25,118,210,1) 100%);
+    filter: progid:DXImageTransform.Microsoft.gradient(startColorstr="#020024",endColorstr="#1976d2",GradientType=1);
+    border-bottom: 1px solid #FFA500;
+}
+
+.bedrock-user-info {
+    font-size: 10pt;
+    float: right;
+}
+
+@media only screen and (max-width: 428px) {
+    .bedrock-infobar {
+        line-height: unset;
+        text-align: center;
+        padding-top: 8px;
+    }
+
+    .bedrock-infobar a.fs-5 {
+        font-size: 9.5pt !important;
+        font-weight: bold;
+    }
+
+    .bedrock-user-info {
+        font-size: 8pt !important;
+        float: unset;
+    }
+}
+
+.bedrock-navbar {
+    width: 100%;
+    height: 28px;
+    padding: 0 25px 0 25px;
+    background-color: #414141;
+    border-bottom: 2px solid #1976D2;
+}
+
+    .bedrock-navbar div {
+        min-width: 110px;
+        height: 24px;
+        border-left: 1px solid #FFFFFF;
+        border-right: 1px solid #FFFFFF;
+        display: inline-block;
+    }
+
+    .bedrock-navbar div:hover {
+        background-color: #5b5b5b;
+    }
+
+    .bedrock-navbar div a {
+        color: #FFFFFF;
+        font-size: 8pt;
+        font-weight: bold;
+        text-decoration: none;
+        line-height: 24px;
+        display: block;
+        text-align: center;
+    }
+
+    .bedrock-navbar div a:hover {
+        color: #FFA500;
+    }
+
+.bedrock-content {
+    width: 100%;
+    height: calc(100vh - 120px);
+    top: 90px;
+    position: absolute;
+}
+
+    .bedrock-content .error-body {
+        text-align: center;
+        margin: 25vh auto 0 auto;
+        padding: 10px 10px;
+    }
+
+.chatbox-window {
+    width: 90%;
+    height: 95%;
+    top: 3%;
+}
+
+@media only screen and (max-width: 768px) {
+    .bedrock-content {
+        box-sizing: content-box !important;
+    }
+
+    .chatbox-window {
+        width: 100%;
+        height: 100%;
+        top: 0px;
+        border: 0px;
+        border-radius: 0px;
+    }
+}
+
+    .chatbox-window .form-control {
+        border-color: transparent;
+        margin-left: 5px !important;
+        margin-right: 5px !important;
+    }
+
+        .chatbox-window .form-control:focus {
+            border-color: transparent;
+            box-shadow: inset 0px 0px 0px 1px transparent;
+        }
+
+    .divider:after,
+    .divider:before {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: #eee;
+    }
+
+#chat-body {
+    overflow: auto;
+    /*position: relative;*/
+}
+
+.bedrock-footer {
+    bottom: 0px;
+    position: fixed;
+    width: 100%;
+    height: 30px;
+    background-color: #1976D2;
+}
+
+.bedrock-copyright {
+    width: calc(100vw);
+    height: 30px;
+    color: #FFFFFF;
+    font-size: 8pt;
+    font-weight: bold;
+    text-align: center;
+    vertical-align: middle;
+    display: table-cell;
+}
+
+/* Loading animation */
+.loader {
+    text-align: center;
+    margin-left: 15px;
+    margin-top: 5px;
+    /*bottom: 10px;
+position: absolute;*/
+}
+
+    .loader span {
+        display: inline-block;
+        vertical-align: middle;
+        width: 20px;
+        height: 20px;
+        background: black;
+        border-radius: 20px;
+        animation: loader 0.8s infinite alternate;
+    }
+
+        .loader span:nth-of-type(2) {
+            animation-delay: 0.2s;
+        }
+
+        .loader span:nth-of-type(3) {
+            animation-delay: 0.6s;
+        }
+
+@keyframes loader {
+    0% {
+        opacity: 0.9;
+        transform: scale(0.5);
+    }
+
+    100% {
+        opacity: 0.1;
+        transform: scale(1);
+    }
+}
+
+.pretty-avatar {
+    width: 45px;
+    height: 45px;
+    padding: 2px;
+    border: 2px solid #3399CC;
+    border-radius: 100%;
+    box-shadow: 0 0 4px RGBA(51, 153, 204, 0.4);
+}
+
+.bedrock-option-overlay {
+    width: 100%;
+    height: calc(100vh - 120px);
+    top: 0px;
+    left: 0px;
+    position: absolute;
+    background-color: rgba(102, 102, 102, .4);
+    display: none;
+    transition: .3s;
+    z-index: 50;
+}
+
+.bedrock-option-overlay-active {
+    display: inline !important;
+}
+
+#sidebar-open {
+    width: 25px;
+    height: 100px;
+    background-color: #FFA500;
+    top: calc(50vh - 120px);
+    left: 0px;
+    position: absolute;
+    border-end-start-radius: 10px;
+    border-end-end-radius: 10px;
+    line-height: 25px;
+    font-size: 9pt;
+    font-weight: bold;
+    text-align: center;
+    writing-mode: vertical-lr;
+    text-orientation: mixed;
+    cursor: pointer;
+}
+
+.bedrock-option-sidebar-active {
+    left: 0px !important;
+}
+
+.bedrock-option-sidebar {
+    width: 400px;
+    height: calc(100vh - 120px);
+    top: 0px;
+    left: -400px;
+    position: absolute;
+    padding: 50px 20px 50px 20px;
+    background-color: #666666;
+    transition: .3s;
+    z-index: 100;
+}
+
+@media only screen and (max-width: 428px) {
+    .bedrock-option-sidebar {
+        width: 100vw;
+        left: -100vw;
+    }
+}
+
+.bedrock-option-sidebar #sidebar-close {
+    position: absolute;
+    right: 16px;
+    top: 16px;
+    width: 32px;
+    height: 32px;
+    opacity: 0.3;
+}
+
+    .bedrock-option-sidebar #sidebar-close:hover {
+        opacity: 1;
+    }
+
+    .bedrock-option-sidebar #sidebar-close:before, #sidebar-close:after {
+        position: absolute;
+        left: 15px;
+        content: ' ';
+        height: 33px;
+        width: 2px;
+        background-color: #FFFFFF;
+    }
+
+    .bedrock-option-sidebar #sidebar-close:before {
+        transform: rotate(45deg);
+    }
+
+    .bedrock-option-sidebar #sidebar-close:after {
+        transform: rotate(-45deg);
+    }
+
+.bedrock-option-sidebar label {
+    color: #FFA500;
+    margin-top: 5px;
+}
+
+    .bedrock-option-sidebar label div {
+        color: #FFFFFF;
+        font-size: 8pt;
+    }
+
+@media only screen and (max-height: 799px) {
+    .bedrock-option-sidebar label div {
+        display: none;
+    }
+}
+
+.bedrock-option-sidebar p {
+    color: #FFFFFF;
+    font-size: 8pt;
+    text-align: center;
+    margin: 0 0 0 0 !important;
+}

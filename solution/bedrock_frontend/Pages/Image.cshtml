@@ -1,0 +1,109 @@
+﻿@page
+@model bedrock_frontend.Pages.ImageModel
+@{
+    ViewData["Title"] = "Image generation";
+}
+
+<div class="card m-auto chatbox-window">
+    <div class="card-header d-flex justify-content-between align-items-center p-3">
+        <h5 class="mb-0">Image</h5>
+    </div>
+
+    <div id="chat-body" class="card-body" data-mdb-perfect-scrollbar="true">
+        <div id="chat-connection-status" class="divider d-flex align-items-center mb-4">
+            <p class="text-center mx-3 mb-0" style="color: #a2aab7">Connecting to backend endpoint. Please wait</p>
+        </div>
+    </div>
+
+    <div class="card-footer text-muted d-flex justify-content-start align-items-center p-3">
+        <img src="~/images/avatars/user.webp" class="pretty-avatar" />
+        <input id="chat-message" type="text" class="form-control form-control-lg" placeholder="Type message" disabled="disabled" />
+        <input id="chat-sendbutton" type="image" src="~/images/btn_send.webp" style="max-height: 30px; max-width: 30px" disabled="disabled" />
+    </div>
+</div>
+
+
+<div id="sidebar-open">OPTIONS</div>
+
+<div class="bedrock-option-overlay"></div>
+
+<div class="bedrock-option-sidebar">
+    <div id="sidebar-close"></div>
+
+    <label for="option_model" class="form-label">
+        Model
+        <div>ID of the model to use.</div>
+    </label>
+    <select id="option_model" class="form-select form-select-sm mb-3 bedrock-options" aria-label="Foundational Model" disabled>
+        <option value="amazon.titan-image-generator-v1" selected>Amazon Titan Image Generator G1</option>
+        <option value="stability.stable-diffusion-xl-v1">Stability.ai Diffusion 1.0</option>
+    </select>
+
+    <label for="option_resolution" class="form-label">
+        Image resolution
+        <div>Select a supported width x height</div>
+    </label>
+    <select id="option_resolution" class="form-select form-select-sm mb-3 bedrock-options" aria-label="Image resolution" disabled></select>
+
+    <label for="option_cfgscale" class="form-label">
+        Cfg Scale
+        <div>Determines how much the final image portrays the prompt. Use a lower number to increase randomness in the generation.</div>
+    </label>
+    <input id="option_cfgscale" type="range" class="form-range bedrock-options" min="1.1" max="10" step="0.1" value="8.0" disabled>
+    <p id="current_cfgscale">8.0</p>
+
+    <label for="option_sampler" class="form-label" style="display:none">
+        Sampler
+        <div>The sampler to use for the diffusion process. If this value is omitted, the model automatically selects an appropriate sampler for you.</div>
+    </label>
+    <select id="option_sampler" class="form-select form-select-sm mb-3 bedrock-options" aria-label="Sampler" style="display:none" disabled>
+        <option disabled selected></option>
+        <option value="DDIM">DDIM</option>
+        <option value="DDPM">DDPM</option>
+        <option value="K_DPMPP_2M">K_DPMPP_2M</option>
+        <option value="K_DPMPP_2S_ANCESTRAL">K_DPMPP_2S_ANCESTRAL</option>
+        <option value="K_DPM_2">K_DPM_2</option>
+        <option value="K_DPM_2_ANCESTRAL">K_DPM_2_ANCESTRAL</option>
+        <option value="K_EULER">K_EULER</option>
+        <option value="K_EULER_ANCESTRAL">K_EULER_ANCESTRAL</option>
+        <option value="K_HEUN">K_HEUN</option>
+        <option value="K_LMS">K_LMS</option>
+    </select>
+
+    <label for="option_style_preset" class="form-label" style="display:none">
+        Style Preset
+        <div>A style preset that guides the image model towards a particular style. This list of style presets is subject to change.</div>
+    </label>
+    <select id="option_style_preset" class="form-select form-select-sm mb-3 bedrock-options" aria-label="Style Preset" style="display:none" disabled>
+        <option disabled selected></option>
+        <option value="3d-model">3d-model</option>
+        <option value="analog-film">analog-film</option>
+        <option value="anime">anime</option>
+        <option value="cinematic">cinematic</option>
+        <option value="comic-book">comic-book</option>
+        <option value="digital-art">digital-art</option>
+        <option value="enhance">enhance</option>
+        <option value="fantasy-art">fantasy-art</option>
+        <option value="isometric">isometric</option>
+        <option value="line-art">line-art</option>
+        <option value="low-poly">low-poly</option>
+        <option value="modeling-compound">modeling-compound</option>
+        <option value="neon-punk">neon-punk</option>
+        <option value="origami">origami</option>
+        <option value="photographic">photographic</option>
+        <option value="pixel-art">pixel-art</option>
+        <option value="tile-texture">tile-texture</option>
+    </select>
+</div>
+
+@section Scripts {
+    <script>
+        var bedrock_backend_endpoint = "@ViewData["backend_endpoint"]";
+        var backend_stage = "@ViewData["backend_stage"]";
+        var cognito_id_token = "@ViewData["id_token"]";
+        var action_name = "@ViewData["ws_action"]";
+    </script>
+    <script src="~/js/jquery.simple.websocket.js" asp-append-version="true"></script>
+    <script src="~/js/bedrock-common.js" asp-append-version="true"></script>
+    <script src="~/js/bedrock-image.js" asp-append-version="true"></script>
+}
